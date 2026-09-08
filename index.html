@@ -182,7 +182,7 @@
         <h2>Riwayat Transaksi</h2>
         <table>
           <thead>
-            <tr><th>Tanggal</th><th>Keterangan</th><th>Kategori</th><th>Jumlah</th><th>Saldo</th><th>Bukti</th><th></th></tr>
+            <tr><th>Tanggal</th><th>Keterangan</th><th>Kategori</th><th>Jumlah</th><th>Saldo Periode</th><th>Bukti</th><th></th></tr>
           </thead>
           <tbody id="riwayat-body"></tbody>
         </table>
@@ -410,20 +410,28 @@ function render(){
   const dari = $('filter-dari').value;
   const sampai = $('filter-sampai').value;
 
+  // Saldo Saat Ini = saldo riil kas dari SEMUA transaksi, tidak terpengaruh filter periode
+  const allSorted = [...entries].sort((a,b)=> normalizeDate(a.date)===normalizeDate(b.date) ? (a.id>b.id?1:-1) : (normalizeDate(a.date)>normalizeDate(b.date)?1:-1));
+  let saldoKeseluruhan = 0;
+  allSorted.forEach(e=>{
+    saldoKeseluruhan += (e.type==='masuk' ? e.amt : -e.amt);
+  });
+  $('saldo-val').textContent = fmtRupiah(saldoKeseluruhan);
+
   const filtered = entries
     .filter(e => filterBulan==='all' || normalizeDate(e.date).slice(0,7)===filterBulan)
     .filter(e => !dari || normalizeDate(e.date) >= dari)
     .filter(e => !sampai || normalizeDate(e.date) <= sampai)
     .sort((a,b)=> normalizeDate(a.date)===normalizeDate(b.date) ? (a.id>b.id?1:-1) : (normalizeDate(a.date)>normalizeDate(b.date)?1:-1));
 
-  let saldo = 0, totalMasuk = 0, totalKeluar = 0;
+  // saldo berjalan di tabel & total masuk/keluar dihitung KHUSUS untuk periode yang difilter (mulai dari 0)
+  let saldoPeriode = 0, totalMasuk = 0, totalKeluar = 0;
   const rows = filtered.map(e=>{
-    if(e.type==='masuk'){ saldo += e.amt; totalMasuk += e.amt; }
-    else { saldo -= e.amt; totalKeluar += e.amt; }
-    return {...e, runningSaldo: saldo};
+    if(e.type==='masuk'){ saldoPeriode += e.amt; totalMasuk += e.amt; }
+    else { saldoPeriode -= e.amt; totalKeluar += e.amt; }
+    return {...e, runningSaldo: saldoPeriode};
   });
 
-  $('saldo-val').textContent = fmtRupiah(saldo);
   $('masuk-val').textContent = fmtRupiah(totalMasuk);
   $('keluar-val').textContent = fmtRupiah(totalKeluar);
 
