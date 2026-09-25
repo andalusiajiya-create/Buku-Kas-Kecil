@@ -23,6 +23,7 @@
     --orange:#C97C3E;
     --orange-bg:#F4E3CE;
     --black-btn:#1B2A22;
+    --blue:#2F5470;
   }
   *{box-sizing:border-box;}
   body{
@@ -77,10 +78,13 @@
   th{text-align:left;font-size:10px;letter-spacing:0.5px;color:var(--muted);text-transform:uppercase;padding:6px 6px;border-bottom:1px solid var(--border);}
   td{padding:8px 6px;border-bottom:1px solid #ECE7D8;vertical-align:top;}
   tr:last-child td{border-bottom:none;}
+  tr.editing-row{background:#FBF0DC;}
   .amt-masuk{color:var(--green);font-weight:bold;}
   .amt-keluar{color:var(--red);font-weight:bold;}
   .empty-state{text-align:center;color:var(--muted);font-style:italic;font-size:12px;padding:28px 10px;}
-  .row-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0;}
+  .row-actions{display:flex;gap:8px;white-space:nowrap;}
+  .row-edit, .row-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0;}
+  .row-edit:hover{color:var(--blue);}
   .row-del:hover{color:var(--red);}
   .bukti-link{color:var(--green);text-decoration:underline;font-size:11px;}
 
@@ -91,6 +95,8 @@
 
   .form-badge{display:flex;justify-content:space-between;align-items:center;background:var(--orange-bg);border:1px solid var(--orange);border-radius:4px;padding:8px 12px;margin-bottom:14px;font-size:11px;color:#7A4A1F;}
   .form-badge button{background:var(--orange);border:none;color:#fff;padding:4px 10px;border-radius:3px;font-size:10px;}
+  .form-badge.editing{background:#DCE7EE;border-color:var(--blue);color:#274259;}
+  .form-badge.editing button{background:var(--blue);}
 
   .toggle-row{display:flex;gap:8px;margin-bottom:14px;}
   .toggle-btn{flex:1;padding:10px;border:1px solid var(--ink);background:var(--panel);border-radius:4px;font-weight:bold;font-size:12px;}
@@ -104,9 +110,14 @@
 
   .file-btn{width:100%;padding:16px;border:1px dashed var(--border);border-radius:4px;background:#fff;font-size:11px;color:var(--muted);text-align:center;cursor:pointer;}
   .file-btn.has-file{color:var(--green);border-color:var(--green);}
+  .bukti-existing-row{display:flex;gap:8px;align-items:center;margin-top:8px;font-size:11px;}
+  .bukti-existing-row a{color:var(--green);}
+  .link-btn{background:none;border:none;color:var(--red);text-decoration:underline;font-size:11px;cursor:pointer;padding:0;}
 
   .submit-btn{width:100%;padding:12px;background:var(--black-btn);color:#fff;border:none;border-radius:4px;font-weight:bold;letter-spacing:1px;font-size:12px;margin-top:6px;}
   .submit-btn:disabled{opacity:0.5;cursor:not-allowed;}
+  .submit-btn.mode-update{background:var(--blue);}
+  .cancel-edit-btn{width:100%;padding:10px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:4px;font-size:11px;margin-top:8px;}
 
   .foot{text-align:center;font-size:10px;color:var(--muted);margin-top:24px;font-style:italic;}
 
@@ -197,9 +208,9 @@
     </div>
 
     <div class="panel no-print">
-      <h2>Catat Transaksi</h2>
+      <h2 id="form-title">Catat Transaksi</h2>
 
-      <div class="form-badge">
+      <div class="form-badge" id="form-badge">
         <span id="badge-text">Terhubung ke Google Sheets</span>
         <button id="btn-settings">Atur</button>
       </div>
@@ -231,9 +242,14 @@
         <label>Bukti / Foto Struk (Opsional)</label>
         <button type="button" class="file-btn" id="file-btn">📎 Klik untuk pilih foto bukti</button>
         <input type="file" id="f-bukti" accept="image/*" style="display:none;">
+        <div class="bukti-existing-row" id="bukti-existing-row" style="display:none;">
+          <a href="#" target="_blank" id="bukti-existing-link">lihat bukti saat ini</a>
+          <button type="button" class="link-btn" id="btn-hapus-bukti">Hapus bukti</button>
+        </div>
       </div>
 
       <button class="submit-btn" id="btn-simpan">SIMPAN TRANSAKSI</button>
+      <button class="cancel-edit-btn" id="btn-batal-edit" style="display:none;">Batal edit</button>
     </div>
   </div>
 
@@ -249,6 +265,11 @@ let apiUrl = null;
 let currentType = 'masuk';
 let buktiBase64 = null;
 let buktiName = null;
+
+// --- edit-mode state ---
+let editingId = null;        // id of the entry currently being edited, or null
+let editingExistingBukti = null; // URL of the bukti already saved on that entry
+let removeBuktiFlag = false; // user explicitly asked to remove the existing bukti
 
 const fmtRupiah = n => 'Rp ' + Math.round(n).toLocaleString('id-ID');
 const $ = id => document.getElementById(id);
@@ -350,13 +371,22 @@ async function loadEntries(){
   render();
 }
 
-async function addEntry(entry){
+// Generic save: action is 'add' or 'update'
+async function saveEntry(action, entry){
   if(!apiUrl){ openSettings(); return false; }
   try{
-    await fetch(apiUrl, {
+    const res = await fetch(apiUrl, {
       method:'POST',
-      body: JSON.stringify({action:'add', entry})
+      body: JSON.stringify({action, ...entry})
     });
+    // response may be opaque depending on CORS setup; if fetch didn't throw, treat as sent
+    try{
+      const data = await res.json();
+      if(data && data.ok === false){
+        alert('Gagal menyimpan: ' + (data.error || 'unknown error'));
+        return false;
+      }
+    }catch(_e){ /* opaque response, assume ok */ }
     return true;
   }catch(err){
     alert('Gagal menyimpan ke Google Sheets. Cek koneksi internet / URL Apps Script.');
@@ -367,6 +397,7 @@ async function addEntry(entry){
 async function deleteEntry(id){
   if(!apiUrl) return;
   await fetch(apiUrl, { method:'POST', body: JSON.stringify({action:'delete', id}) });
+  if(editingId === id) exitEditMode();
   await loadEntries();
 }
 
@@ -445,6 +476,7 @@ function render(){
   }
   [...rows].reverse().forEach(r=>{
     const tr = document.createElement('tr');
+    if(r.id === editingId) tr.classList.add('editing-row');
     const tgl = new Date(normalizeDate(r.date)).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'});
     tr.innerHTML = `
       <td>${tgl}</td>
@@ -453,12 +485,23 @@ function render(){
       <td class="${r.type==='masuk'?'amt-masuk':'amt-keluar'}">${r.type==='masuk'?'+':'-'} ${fmtRupiah(r.amt)}</td>
       <td>${fmtRupiah(r.runningSaldo)}</td>
       <td>${r.bukti ? `<a class="bukti-link" href="${r.bukti}" target="_blank">lihat</a>` : '—'}</td>
-      <td><button class="row-del" data-id="${r.id}" title="Hapus">✕</button></td>
+      <td>
+        <div class="row-actions">
+          <button class="row-edit" data-id="${r.id}" title="Edit">✎</button>
+          <button class="row-del" data-id="${r.id}" title="Hapus">✕</button>
+        </div>
+      </td>
     `;
     tbody.appendChild(tr);
   });
   tbody.querySelectorAll('.row-del').forEach(btn=>{
     btn.onclick = ()=>{ if(confirm('Hapus transaksi ini?')) deleteEntry(btn.dataset.id); };
+  });
+  tbody.querySelectorAll('.row-edit').forEach(btn=>{
+    btn.onclick = ()=>{
+      const entry = entries.find(e=>String(e.id)===String(btn.dataset.id));
+      if(entry) enterEditMode(entry);
+    };
   });
 
   const katMap = {};
@@ -514,6 +557,7 @@ $('f-bukti').onchange = (e)=>{
   const file = e.target.files[0];
   if(!file) return;
   buktiName = file.name;
+  removeBuktiFlag = false; // picking a new file overrides any "remove" request
   const img = new Image();
   const reader = new FileReader();
   reader.onload = (ev)=>{
@@ -527,10 +571,77 @@ $('f-bukti').onchange = (e)=>{
       buktiBase64 = canvas.toDataURL('image/jpeg', 0.75);
       $('file-btn').textContent = '✓ ' + file.name;
       $('file-btn').classList.add('has-file');
+      $('bukti-existing-row').style.display = 'none';
     };
     img.src = ev.target.result;
   };
   reader.readAsDataURL(file);
+};
+
+// ---------- Edit mode ----------
+function enterEditMode(entry){
+  editingId = entry.id;
+  editingExistingBukti = entry.bukti || null;
+  removeBuktiFlag = false;
+  buktiBase64 = null;
+  buktiName = null;
+
+  $('f-tanggal').value = normalizeDate(entry.date);
+  $('f-keterangan').value = entry.desc;
+  $('f-kategori').value = entry.cat;
+  $('f-jumlah').value = entry.amt;
+  setType(entry.type);
+
+  $('file-btn').textContent = '📎 Klik untuk pilih foto bukti';
+  $('file-btn').classList.remove('has-file');
+  if(editingExistingBukti){
+    $('bukti-existing-row').style.display = 'flex';
+    $('bukti-existing-link').href = editingExistingBukti;
+  } else {
+    $('bukti-existing-row').style.display = 'none';
+  }
+
+  $('form-title').textContent = 'Edit Transaksi';
+  $('form-badge').classList.add('editing');
+  $('badge-text').textContent = 'Mode edit — mengubah transaksi yang sudah ada';
+  $('btn-simpan').textContent = 'UPDATE TRANSAKSI';
+  $('btn-simpan').classList.add('mode-update');
+  $('btn-batal-edit').style.display = 'block';
+
+  render(); // to highlight the row being edited
+  $('f-tanggal').scrollIntoView({behavior:'smooth', block:'center'});
+}
+
+function exitEditMode(){
+  editingId = null;
+  editingExistingBukti = null;
+  removeBuktiFlag = false;
+  buktiBase64 = null;
+  buktiName = null;
+
+  $('f-keterangan').value = '';
+  $('f-jumlah').value = '';
+  $('f-tanggal').value = new Date().toISOString().slice(0,10);
+  setType('masuk');
+
+  $('file-btn').textContent = '📎 Klik untuk pilih foto bukti';
+  $('file-btn').classList.remove('has-file');
+  $('bukti-existing-row').style.display = 'none';
+
+  $('form-title').textContent = 'Catat Transaksi';
+  $('form-badge').classList.remove('editing');
+  $('badge-text').textContent = 'Terhubung ke Google Sheets';
+  $('btn-simpan').textContent = 'SIMPAN TRANSAKSI';
+  $('btn-simpan').classList.remove('mode-update');
+  $('btn-batal-edit').style.display = 'none';
+
+  render();
+}
+$('btn-batal-edit').onclick = exitEditMode;
+$('btn-hapus-bukti').onclick = ()=>{
+  removeBuktiFlag = true;
+  $('bukti-existing-row').style.display = 'none';
+  $('file-btn').textContent = '📎 Bukti akan dihapus — klik untuk pilih foto baru (opsional)';
 };
 
 $('btn-simpan').onclick = async ()=>{
@@ -545,29 +656,38 @@ $('btn-simpan').onclick = async ()=>{
   }
 
   const btn = $('btn-simpan');
-  btn.disabled = true; btn.textContent = 'MENYIMPAN…';
+  const isEdit = !!editingId;
+  btn.disabled = true; btn.textContent = isEdit ? 'MENGUPDATE…' : 'MENYIMPAN…';
 
   const entry = {
-    id: 'tx_' + Date.now() + '_' + Math.random().toString(36).slice(2,7),
+    id: isEdit ? editingId : ('tx_' + Date.now() + '_' + Math.random().toString(36).slice(2,7)),
     date: tanggal,
     desc: ket,
     cat: kat,
     amt: jumlah,
     type: currentType,
     buktiBase64: buktiBase64,
-    buktiName: buktiName
+    buktiName: buktiName,
+    removeBukti: removeBuktiFlag
   };
 
-  const ok = await addEntry(entry);
-  btn.disabled = false; btn.textContent = 'SIMPAN TRANSAKSI';
+  const ok = await saveEntry(isEdit ? 'update' : 'add', entry);
+  btn.disabled = false;
 
   if(ok){
-    $('f-keterangan').value = '';
-    $('f-jumlah').value = '';
-    buktiBase64 = null; buktiName = null;
-    $('file-btn').textContent = '📎 Klik untuk pilih foto bukti';
-    $('file-btn').classList.remove('has-file');
+    if(isEdit){
+      exitEditMode();
+    } else {
+      $('f-keterangan').value = '';
+      $('f-jumlah').value = '';
+      buktiBase64 = null; buktiName = null;
+      $('file-btn').textContent = '📎 Klik untuk pilih foto bukti';
+      $('file-btn').classList.remove('has-file');
+      btn.textContent = 'SIMPAN TRANSAKSI';
+    }
     await loadEntries();
+  } else {
+    btn.textContent = isEdit ? 'UPDATE TRANSAKSI' : 'SIMPAN TRANSAKSI';
   }
 };
 
