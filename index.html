@@ -383,7 +383,7 @@ async function saveEntry(action, entry){
     try{
       const data = await res.json();
       if(data && data.ok === false){
-        alert('Gagal menyimpan: ' + (data.error || 'unknown error'));
+        alert('Gagal menyimpan: ' + JSON.stringify(data, null, 2));
         return false;
       }
     }catch(_e){ /* opaque response, assume ok */ }
