@@ -220,9 +220,15 @@
         <button class="toggle-btn" id="tab-keluar" data-type="keluar">KELUAR</button>
       </div>
 
-      <div class="field">
-        <label>Tanggal</label>
-        <input type="date" id="f-tanggal">
+      <div class="field-row">
+        <div class="field">
+          <label>Tanggal</label>
+          <input type="date" id="f-tanggal">
+        </div>
+        <div class="field">
+          <label>Jam (opsional)</label>
+          <input type="time" id="f-jam">
+        </div>
       </div>
       <div class="field">
         <label>Keterangan</label>
@@ -284,9 +290,21 @@ function todayLocalStr(){
   const day = String(d.getDate()).padStart(2,'0');
   return `${y}-${m}-${day}`;
 }
+function nowLocalTimeStr(){
+  const d = new Date();
+  const h = String(d.getHours()).padStart(2,'0');
+  const mi = String(d.getMinutes()).padStart(2,'0');
+  return `${h}:${mi}`;
+}
+// Combined sort key: date + time (missing time sorts as 00:00 — falls back
+// to id as a tie-breaker so old entries without a time keep input order).
+function dateTimeKey(e){
+  return normalizeDate(e.date) + 'T' + (e.time && /^\d{2}:\d{2}$/.test(e.time) ? e.time : '00:00');
+}
 
 $('date-now').textContent = new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'});
 $('f-tanggal').value = todayLocalStr();
+$('f-jam').value = nowLocalTimeStr();
 
 CATEGORIES.forEach(c=>{
   const o = document.createElement('option'); o.value=c; o.textContent=c;
@@ -453,7 +471,7 @@ function render(){
   const sampai = $('filter-sampai').value;
 
   // Saldo Saat Ini = saldo riil kas dari SEMUA transaksi, tidak terpengaruh filter periode
-  const allSorted = [...entries].sort((a,b)=> normalizeDate(a.date)===normalizeDate(b.date) ? (a.id>b.id?1:-1) : (normalizeDate(a.date)>normalizeDate(b.date)?1:-1));
+  const allSorted = [...entries].sort((a,b)=> dateTimeKey(a)===dateTimeKey(b) ? (a.id>b.id?1:-1) : (dateTimeKey(a)>dateTimeKey(b)?1:-1));
   let saldoKeseluruhan = 0;
   allSorted.forEach(e=>{
     saldoKeseluruhan += (e.type==='masuk' ? e.amt : -e.amt);
@@ -464,7 +482,7 @@ function render(){
     .filter(e => filterBulan==='all' || normalizeDate(e.date).slice(0,7)===filterBulan)
     .filter(e => !dari || normalizeDate(e.date) >= dari)
     .filter(e => !sampai || normalizeDate(e.date) <= sampai)
-    .sort((a,b)=> normalizeDate(a.date)===normalizeDate(b.date) ? (a.id>b.id?1:-1) : (normalizeDate(a.date)>normalizeDate(b.date)?1:-1));
+    .sort((a,b)=> dateTimeKey(a)===dateTimeKey(b) ? (a.id>b.id?1:-1) : (dateTimeKey(a)>dateTimeKey(b)?1:-1));
 
   // saldo berjalan di tabel & total masuk/keluar dihitung KHUSUS untuk periode yang difilter (mulai dari 0)
   let saldoPeriode = 0, totalMasuk = 0, totalKeluar = 0;
@@ -489,8 +507,9 @@ function render(){
     const tr = document.createElement('tr');
     if(r.id === editingId) tr.classList.add('editing-row');
     const tgl = new Date(normalizeDate(r.date)).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'});
+    const jamLabel = (r.time && /^\d{2}:\d{2}$/.test(r.time)) ? `<br><span style="color:var(--muted);font-size:10px;">${r.time}</span>` : '';
     tr.innerHTML = `
-      <td>${tgl}</td>
+      <td>${tgl}${jamLabel}</td>
       <td>${escapeHtml(r.desc)}</td>
       <td>${escapeHtml(r.cat)}</td>
       <td class="${r.type==='masuk'?'amt-masuk':'amt-keluar'}">${r.type==='masuk'?'+':'-'} ${fmtRupiah(r.amt)}</td>
@@ -598,6 +617,7 @@ function enterEditMode(entry){
   buktiName = null;
 
   $('f-tanggal').value = normalizeDate(entry.date);
+  $('f-jam').value = (entry.time && /^\d{2}:\d{2}$/.test(entry.time)) ? entry.time : '';
   $('f-keterangan').value = entry.desc;
   $('f-kategori').value = entry.cat;
   $('f-jumlah').value = entry.amt;
@@ -633,6 +653,7 @@ function exitEditMode(){
   $('f-keterangan').value = '';
   $('f-jumlah').value = '';
   $('f-tanggal').value = todayLocalStr();
+  $('f-jam').value = nowLocalTimeStr();
   setType('masuk');
 
   $('file-btn').textContent = '📎 Klik untuk pilih foto bukti';
@@ -673,6 +694,7 @@ $('btn-simpan').onclick = async ()=>{
   const entry = {
     id: isEdit ? editingId : ('tx_' + Date.now() + '_' + Math.random().toString(36).slice(2,7)),
     date: tanggal,
+    time: $('f-jam').value || '',
     desc: ket,
     cat: kat,
     amt: jumlah,
@@ -703,12 +725,12 @@ $('btn-simpan').onclick = async ()=>{
 };
 
 $('btn-export').onclick = ()=>{
-  const header = ['id','date','desc','cat','amt','type','bukti'];
+  const header = ['id','date','time','desc','cat','amt','type','bukti'];
   const lines = [header.join(',')];
   entries.forEach(e=>{
     lines.push(header.map(h=>`"${String(e[h]??'').replace(/"/g,'""')}"`).join(','));
   });
-  const blob = new Blob([lines.join('\\n')], {type:'text/csv'});
+  const blob = new Blob([lines.join('\n')], {type:'text/csv'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'buku-kas-kecil-export.csv';
