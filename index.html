@@ -274,8 +274,19 @@ let removeBuktiFlag = false; // user explicitly asked to remove the existing buk
 const fmtRupiah = n => 'Rp ' + Math.round(n).toLocaleString('id-ID');
 const $ = id => document.getElementById(id);
 
+// Returns today's date as YYYY-MM-DD in the BROWSER's local timezone.
+// (Date#toISOString() converts to UTC and can land on the wrong calendar
+// day for timezones ahead of UTC, e.g. Jakarta before 07:00 local time.)
+function todayLocalStr(){
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
 $('date-now').textContent = new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'});
-$('f-tanggal').value = new Date().toISOString().slice(0,10);
+$('f-tanggal').value = todayLocalStr();
 
 CATEGORIES.forEach(c=>{
   const o = document.createElement('option'); o.value=c; o.textContent=c;
@@ -621,7 +632,7 @@ function exitEditMode(){
 
   $('f-keterangan').value = '';
   $('f-jumlah').value = '';
-  $('f-tanggal').value = new Date().toISOString().slice(0,10);
+  $('f-tanggal').value = todayLocalStr();
   setType('masuk');
 
   $('file-btn').textContent = '📎 Klik untuk pilih foto bukti';
