@@ -6,7 +6,7 @@
 <title>Buku Kas Kecil</title>
 <script>
   window.APP_CONFIG = {
-    APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxnQSSRV9hjBRsplItm_rKcQKZRJpqDehfQY3pqt-sev9grOkyksvqp-anDPDSaMG5LWQ/exec"
+    APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbzhE2n0ViFz1kYt0Ey-rypMtuYYXzOT1XZTgykNfBCGiidDJaUa4Pxqk1Y2E2PotoKN/exec"
   };
 </script>
 <style>
@@ -383,7 +383,7 @@ async function saveEntry(action, entry){
     try{
       const data = await res.json();
       if(data && data.ok === false){
-        alert('Gagal menyimpan: ' + JSON.stringify(data, null, 2));
+        alert('Gagal menyimpan: ' + (data.error || 'unknown error'));
         return false;
       }
     }catch(_e){ /* opaque response, assume ok */ }
